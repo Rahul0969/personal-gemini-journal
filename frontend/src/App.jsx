@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 
 import { auth, db } from "./firebase";
+import "./App.css";
 
 function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -104,7 +105,6 @@ function App() {
 
       setJournals(entries);
     } catch (err) {
-      console.error(err);
       setError("Unable to load journals: " + err.message);
     } finally {
       setLoadingJournals(false);
@@ -147,7 +147,6 @@ function App() {
 
       await loadJournals(user);
     } catch (err) {
-      console.error(err);
       setError("Unable to save journal: " + err.message);
     }
   };
@@ -166,7 +165,6 @@ function App() {
 
       setMessage("Journal deleted.");
     } catch (err) {
-      console.error(err);
       setError("Unable to delete journal: " + err.message);
     }
   };
@@ -180,130 +178,185 @@ function App() {
     setError("");
   };
 
+  const formatDate = (timestamp) => {
+    if (!timestamp?.toDate) return "Just now";
+
+    return timestamp.toDate().toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
   if (!user) {
     return (
-      <div>
-        <h1>Personal Gemini Journal</h1>
+      <main className="auth-page">
+        <div className="auth-card">
+          <div className="logo">✦</div>
 
-        <h2>{isLogin ? "Login" : "Create Account"}</h2>
+          <h1>Personal Gemini Journal</h1>
 
-        <form onSubmit={handleAuth}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+          <p className="subtitle">
+            Your private space for thoughts, memories and reflections.
+          </p>
 
-          <br />
-          <br />
+          <h2>{isLogin ? "Welcome back" : "Create your account"}</h2>
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <form onSubmit={handleAuth}>
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
 
-          <br />
-          <br />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
 
-          <button type="submit" disabled={loading}>
-            {loading
-              ? "Please wait..."
-              : isLogin
-              ? "Login"
-              : "Create Account"}
+            <button className="primary-button" type="submit" disabled={loading}>
+              {loading
+                ? "Please wait..."
+                : isLogin
+                ? "Login"
+                : "Create Account"}
+            </button>
+          </form>
+
+          {error && <p className="error">{error}</p>}
+
+          <button
+            className="switch-button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError("");
+            }}
+          >
+            {isLogin
+              ? "Don't have an account? Sign up"
+              : "Already have an account? Login"}
           </button>
-        </form>
-
-        {error && <p>{error}</p>}
-
-        <br />
-
-        <button
-          onClick={() => {
-            setIsLogin(!isLogin);
-            setError("");
-          }}
-        >
-          {isLogin
-            ? "Don't have an account? Sign up"
-            : "Already have an account? Login"}
-        </button>
-      </div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div>
-      <h1>Personal Gemini Journal</h1>
-
-      <p>
-        Logged in as: <strong>{user.email}</strong>
-      </p>
-
-      <button onClick={handleLogout}>Logout</button>
-
-      <hr />
-
-      <h2>Write a Journal Entry</h2>
-
-      <form onSubmit={saveJournal}>
-        <input
-          type="text"
-          placeholder="Journal title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-
-        <br />
-        <br />
-
-        <textarea
-          placeholder="Write about your day..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows="10"
-          cols="50"
-          required
-        />
-
-        <br />
-        <br />
-
-        <button type="submit">Save Journal</button>
-      </form>
-
-      {message && <p>{message}</p>}
-      {error && <p>{error}</p>}
-
-      <hr />
-
-      <h2>My Journal Entries</h2>
-
-      {loadingJournals ? (
-        <p>Loading journals...</p>
-      ) : journals.length === 0 ? (
-        <p>No journal entries yet.</p>
-      ) : (
-        journals.map((journal) => (
-          <div key={journal.id}>
-            <h3>{journal.title}</h3>
-            <p>{journal.content}</p>
-
-            <button onClick={() => deleteJournal(journal.id)}>
-              Delete
-            </button>
-
-            <hr />
+    <main className="app">
+      <header className="topbar">
+        <div>
+          <div className="brand">
+            <span>✦</span>
+            Personal Gemini Journal
           </div>
-        ))
-      )}
-    </div>
+
+          <p className="welcome">
+            A private space for your thoughts.
+          </p>
+        </div>
+
+        <div className="user-area">
+          <span>{user.email}</span>
+          <button onClick={handleLogout}>Logout</button>
+        </div>
+      </header>
+
+      <section className="dashboard">
+        <div className="editor-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">NEW ENTRY</span>
+              <h2>What’s on your mind?</h2>
+            </div>
+
+            <span className="spark">✦</span>
+          </div>
+
+          <form onSubmit={saveJournal}>
+            <input
+              className="title-input"
+              type="text"
+              placeholder="Give your entry a title..."
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+
+            <textarea
+              placeholder="Write freely. This is your private space..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows="10"
+              required
+            />
+
+            <div className="editor-footer">
+              <span>{content.length} characters</span>
+
+              <button className="primary-button" type="submit">
+                Save Entry
+              </button>
+            </div>
+          </form>
+
+          {message && <p className="success">{message}</p>}
+          {error && <p className="error">{error}</p>}
+        </div>
+
+        <section className="journal-section">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">YOUR JOURNAL</span>
+              <h2>Past reflections</h2>
+            </div>
+
+            <span className="count">{journals.length}</span>
+          </div>
+
+          {loadingJournals ? (
+            <div className="empty-card">
+              <p>Loading your journal...</p>
+            </div>
+          ) : journals.length === 0 ? (
+            <div className="empty-card">
+              <div className="empty-icon">✦</div>
+              <h3>Your journal starts here</h3>
+              <p>
+                Write your first entry above and begin building your personal
+                timeline.
+              </p>
+            </div>
+          ) : (
+            <div className="journal-grid">
+              {journals.map((journal) => (
+                <article className="journal-card" key={journal.id}>
+                  <div className="journal-card-top">
+                    <span className="date">
+                      {formatDate(journal.createdAt)}
+                    </span>
+
+                    <button
+                      className="delete-button"
+                      onClick={() => deleteJournal(journal.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+
+                  <h3>{journal.title}</h3>
+
+                  <p>{journal.content}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+    </main>
   );
 }
 
