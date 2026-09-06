@@ -8,6 +8,7 @@ from google import genai
 load_dotenv()
 
 app = FastAPI()
+frontend_url = os.getenv("FRONTEND_URL","http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
