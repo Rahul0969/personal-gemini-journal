@@ -92,6 +92,7 @@ function App() {
     try {
       await addDoc(collection(db, "users", user.uid, "journals"), {
         text: entry.trim(),
+        analysis: analysis || null,
         createdAt: serverTimestamp(),
       });
 
@@ -138,12 +139,31 @@ function App() {
     }
   }
 
+  const analyzedJournals = journals.filter(
+    (journal) => journal.analysis?.moodScore
+  );
+
+  const averageMood =
+    analyzedJournals.length > 0
+      ? (
+          analyzedJournals.reduce(
+            (sum, journal) => sum + Number(journal.analysis.moodScore),
+            0
+          ) / analyzedJournals.length
+        ).toFixed(1)
+      : "—";
+
+  const latestMood =
+    journals.find((journal) => journal.analysis?.mood)?.analysis?.mood || "—";
+
   if (!user) {
     return (
       <main className="auth-page">
         <div className="auth-card">
           <div className="brand-mark">✦</div>
+
           <h1>Personal Gemini Journal</h1>
+
           <p>Reflect. Understand. Grow.</p>
 
           <form onSubmit={handleAuth}>
@@ -195,6 +215,7 @@ function App() {
       <header className="topbar">
         <div>
           <div className="brand-title">Personal Gemini Journal</div>
+
           <div className="brand-subtitle">
             Your private space for reflection
           </div>
@@ -208,7 +229,9 @@ function App() {
       <section className="hero">
         <div>
           <span className="eyebrow">PERSONAL REFLECTION</span>
+
           <h1>How are you feeling today?</h1>
+
           <p>
             Write freely. Gemini will help you discover patterns and insights.
           </p>
@@ -220,6 +243,7 @@ function App() {
           <div className="card-header">
             <div>
               <h2>Today's reflection</h2>
+
               <span>{entry.length} characters</span>
             </div>
           </div>
@@ -257,6 +281,7 @@ function App() {
             <div className="card-header">
               <div>
                 <span className="eyebrow">GEMINI INSIGHT</span>
+
                 <h2>Your reflection</h2>
               </div>
             </div>
@@ -264,11 +289,13 @@ function App() {
             <div className="mood-overview">
               <div className="mood-box">
                 <span>MOOD</span>
+
                 <strong>{analysis.mood}</strong>
               </div>
 
               <div className="mood-box">
                 <span>MOOD SCORE</span>
+
                 <strong>{analysis.moodScore}/10</strong>
               </div>
             </div>
@@ -276,6 +303,7 @@ function App() {
             <div className="analysis-grid">
               <div className="analysis-item">
                 <span>EMOTIONS</span>
+
                 <p>
                   {Array.isArray(analysis.emotions)
                     ? analysis.emotions.join(" • ")
@@ -285,6 +313,7 @@ function App() {
 
               <div className="analysis-item">
                 <span>KEY THEMES</span>
+
                 <p>
                   {Array.isArray(analysis.keyThemes)
                     ? analysis.keyThemes.join(" • ")
@@ -294,21 +323,25 @@ function App() {
 
               <div className="analysis-item">
                 <span>SUMMARY</span>
+
                 <p>{analysis.summary}</p>
               </div>
 
               <div className="analysis-item">
                 <span>REFLECTION</span>
+
                 <p>{analysis.reflection}</p>
               </div>
 
               <div className="analysis-item">
                 <span>HELPFUL INSIGHT</span>
+
                 <p>{analysis.helpfulInsight}</p>
               </div>
 
               <div className="analysis-item">
                 <span>SUGGESTED ACTION</span>
+
                 <p>{analysis.suggestedAction}</p>
               </div>
             </div>
@@ -318,10 +351,87 @@ function App() {
 
       {error && <div className="error dashboard-error">{error}</div>}
 
+      <section className="insights-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">GEMINI ANALYTICS</span>
+
+            <h2>Your reflection patterns</h2>
+          </div>
+        </div>
+
+        <div className="stats-grid">
+          <div className="stat-card">
+            <span>TOTAL ENTRIES</span>
+
+            <strong>{journals.length}</strong>
+          </div>
+
+          <div className="stat-card">
+            <span>AVERAGE MOOD</span>
+
+            <strong>
+              {averageMood}
+              {averageMood !== "—" && "/10"}
+            </strong>
+          </div>
+
+          <div className="stat-card">
+            <span>LATEST MOOD</span>
+
+            <strong>{latestMood}</strong>
+          </div>
+        </div>
+
+        {analyzedJournals.length > 0 && (
+          <div className="mood-trend-card">
+            <div className="trend-header">
+              <div>
+                <span className="eyebrow">MOOD TREND</span>
+
+                <h3>Your recent mood scores</h3>
+              </div>
+            </div>
+
+            <div className="mood-bars">
+              {analyzedJournals
+                .slice(0, 7)
+                .reverse()
+                .map((journal) => (
+                  <div className="mood-bar-item" key={journal.id}>
+                    <div className="mood-bar-value">
+                      {journal.analysis.moodScore}
+                    </div>
+
+                    <div className="mood-bar-track">
+                      <div
+                        className="mood-bar-fill"
+                        style={{
+                          height: `${Number(journal.analysis.moodScore) * 10}%`,
+                        }}
+                      />
+                    </div>
+
+                    <span>
+                      {journal.createdAt?.toDate
+                        ? journal.createdAt.toDate().toLocaleDateString([], {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "Now"}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       <section className="past-section">
         <div className="section-heading">
           <div>
             <span className="eyebrow">YOUR JOURNAL</span>
+
             <h2>Past reflections</h2>
           </div>
 
@@ -334,7 +444,9 @@ function App() {
         {journals.length === 0 ? (
           <div className="empty-state">
             <div>✦</div>
+
             <h3>No reflections yet</h3>
+
             <p>Your saved journal entries will appear here.</p>
           </div>
         ) : (
@@ -348,6 +460,16 @@ function App() {
                 </div>
 
                 <p>{journal.text}</p>
+
+                {journal.analysis && (
+                  <div className="saved-insight">
+                    <strong>{journal.analysis.mood}</strong>
+
+                    <span>
+                      Mood {journal.analysis.moodScore}/10
+                    </span>
+                  </div>
+                )}
 
                 <button
                   className="delete-button"
