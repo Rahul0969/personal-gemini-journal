@@ -389,3 +389,46 @@ textarea {
     padding: 30px 22px;
   }
 }
+
+.mood-overview {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.mood-box {
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.mood-box span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #8f98aa;
+}
+
+.mood-box strong {
+  font-size: 22px;
+  font-weight: 700;
+  color: #f5f7fb;
+}
+
+.analysis-card {
+  min-width: 0;
+}
+
+.analysis-item p {
+  line-height: 1.65;
+}
+
+@media (max-width: 640px) {
+  .mood-overview {
+    grid-template-columns: 1fr;
+  }
+}

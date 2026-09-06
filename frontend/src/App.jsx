@@ -15,31 +15,28 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-
 import { auth, db } from "./firebase";
+import { analyzeJournal } from "./gemini";
 import "./App.css";
 
 function App() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [user, setUser] = useState(null);
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [user, setUser] = useState(null);
-
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [entry, setEntry] = useState("");
   const [journals, setJournals] = useState([]);
-
   const [loading, setLoading] = useState(false);
-  const [loadingJournals, setLoadingJournals] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
 
       if (currentUser) {
-        loadJournals(currentUser);
+        loadJournals(currentUser.uid);
       } else {
         setJournals([]);
       }
@@ -48,13 +45,30 @@ function App() {
     return unsubscribe;
   }, []);
 
-  const handleAuth = async (e) => {
+  async function loadJournals(uid) {
+    try {
+      const journalsRef = collection(db, "users", uid, "journals");
+      const q = query(journalsRef, orderBy("createdAt", "desc"));
+      const snapshot = await getDocs(q);
+
+      setJournals(
+        snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }))
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleAuth(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      if (isLogin) {
+      if (mode === "login") {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
@@ -63,143 +77,74 @@ function App() {
       setEmail("");
       setPassword("");
     } catch (err) {
-      if (err.code === "auth/invalid-credential") {
-        setError("Invalid email or password.");
-      } else if (err.code === "auth/email-already-in-use") {
-        setError("This email is already registered.");
-      } else if (err.code === "auth/weak-password") {
-        setError("Password should be at least 6 characters.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("Please enter a valid email address.");
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const loadJournals = async (currentUser) => {
-    setLoadingJournals(true);
+  async function saveJournal() {
+    if (!entry.trim() || !user) return;
+
+    setLoading(true);
     setError("");
 
     try {
-      const journalsRef = collection(
-        db,
-        "users",
-        currentUser.uid,
-        "journals"
-      );
-
-      const journalsQuery = query(
-        journalsRef,
-        orderBy("createdAt", "desc")
-      );
-
-      const snapshot = await getDocs(journalsQuery);
-
-      const entries = snapshot.docs.map((journal) => ({
-        id: journal.id,
-        ...journal.data(),
-      }));
-
-      setJournals(entries);
-    } catch (err) {
-      setError("Unable to load journals: " + err.message);
-    } finally {
-      setLoadingJournals(false);
-    }
-  };
-
-  const saveJournal = async (e) => {
-    e.preventDefault();
-
-    if (!user) {
-      setError("Please login first.");
-      return;
-    }
-
-    if (!title.trim() || !content.trim()) {
-      setError("Please enter both title and content.");
-      return;
-    }
-
-    setError("");
-    setMessage("");
-
-    try {
-      const journalsRef = collection(
-        db,
-        "users",
-        user.uid,
-        "journals"
-      );
-
-      await addDoc(journalsRef, {
-        title: title.trim(),
-        content: content.trim(),
+      await addDoc(collection(db, "users", user.uid, "journals"), {
+        text: entry.trim(),
         createdAt: serverTimestamp(),
       });
 
-      setTitle("");
-      setContent("");
-      setMessage("Journal saved successfully!");
-
-      await loadJournals(user);
+      setEntry("");
+      setAnalysis(null);
+      await loadJournals(user.uid);
     } catch (err) {
-      setError("Unable to save journal: " + err.message);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const deleteJournal = async (journalId) => {
-    if (!user) return;
+  async function deleteJournal(id) {
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "journals", id));
+      await loadJournals(user.uid);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleAnalyze() {
+    if (!entry.trim()) return;
+
+    setAnalyzing(true);
+    setError("");
+    setAnalysis(null);
 
     try {
-      await deleteDoc(
-        doc(db, "users", user.uid, "journals", journalId)
-      );
+      const result = await analyzeJournal(entry.trim());
 
-      setJournals((current) =>
-        current.filter((journal) => journal.id !== journalId)
-      );
+      const cleaned = result
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
 
-      setMessage("Journal deleted.");
+      const parsed = JSON.parse(cleaned);
+      setAnalysis(parsed);
     } catch (err) {
-      setError("Unable to delete journal: " + err.message);
+      setError(err.message);
+    } finally {
+      setAnalyzing(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    setTitle("");
-    setContent("");
-    setJournals([]);
-    setMessage("");
-    setError("");
-  };
-
-  const formatDate = (timestamp) => {
-    if (!timestamp?.toDate) return "Just now";
-
-    return timestamp.toDate().toLocaleString("en-IN", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
+  }
 
   if (!user) {
     return (
       <main className="auth-page">
         <div className="auth-card">
-          <div className="logo">✦</div>
-
+          <div className="brand-mark">✦</div>
           <h1>Personal Gemini Journal</h1>
-
-          <p className="subtitle">
-            Your private space for thoughts, memories and reflections.
-          </p>
-
-          <h2>{isLogin ? "Welcome back" : "Create your account"}</h2>
+          <p>Reflect. Understand. Grow.</p>
 
           <form onSubmit={handleAuth}>
             <input
@@ -218,27 +163,27 @@ function App() {
               required
             />
 
-            <button className="primary-button" type="submit" disabled={loading}>
+            <button type="submit" disabled={loading}>
               {loading
                 ? "Please wait..."
-                : isLogin
-                ? "Login"
-                : "Create Account"}
+                : mode === "login"
+                  ? "Sign in"
+                  : "Create account"}
             </button>
           </form>
 
-          {error && <p className="error">{error}</p>}
+          {error && <div className="error">{error}</div>}
 
           <button
             className="switch-button"
             onClick={() => {
-              setIsLogin(!isLogin);
+              setMode(mode === "login" ? "signup" : "login");
               setError("");
             }}
           >
-            {isLogin
-              ? "Don't have an account? Sign up"
-              : "Already have an account? Login"}
+            {mode === "login"
+              ? "Create a new account"
+              : "Already have an account? Sign in"}
           </button>
         </div>
       </main>
@@ -246,115 +191,174 @@ function App() {
   }
 
   return (
-    <main className="app">
+    <main className="app-page">
       <header className="topbar">
         <div>
-          <div className="brand">
-            <span>✦</span>
-            Personal Gemini Journal
+          <div className="brand-title">Personal Gemini Journal</div>
+          <div className="brand-subtitle">
+            Your private space for reflection
           </div>
-
-          <p className="welcome">
-            A private space for your thoughts.
-          </p>
         </div>
 
-        <div className="user-area">
-          <span>{user.email}</span>
-          <button onClick={handleLogout}>Logout</button>
-        </div>
+        <button className="logout-button" onClick={() => signOut(auth)}>
+          Sign out
+        </button>
       </header>
 
-      <section className="dashboard">
-        <div className="editor-card">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">NEW ENTRY</span>
-              <h2>What’s on your mind?</h2>
-            </div>
+      <section className="hero">
+        <div>
+          <span className="eyebrow">PERSONAL REFLECTION</span>
+          <h1>How are you feeling today?</h1>
+          <p>
+            Write freely. Gemini will help you discover patterns and insights.
+          </p>
+        </div>
+      </section>
 
-            <span className="spark">✦</span>
+      <section className="journal-layout">
+        <div className="editor-card">
+          <div className="card-header">
+            <div>
+              <h2>Today's reflection</h2>
+              <span>{entry.length} characters</span>
+            </div>
           </div>
 
-          <form onSubmit={saveJournal}>
-            <input
-              className="title-input"
-              type="text"
-              placeholder="Give your entry a title..."
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
+          <textarea
+            value={entry}
+            onChange={(e) => {
+              setEntry(e.target.value);
+              setAnalysis(null);
+            }}
+            placeholder="What's on your mind?"
+          />
 
-            <textarea
-              placeholder="Write freely. This is your private space..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows="10"
-              required
-            />
+          <div className="editor-actions">
+            <button
+              className="secondary-button"
+              onClick={handleAnalyze}
+              disabled={!entry.trim() || analyzing}
+            >
+              {analyzing ? "Analyzing..." : "✦ Analyze My Journal"}
+            </button>
 
-            <div className="editor-footer">
-              <span>{content.length} characters</span>
-
-              <button className="primary-button" type="submit">
-                Save Entry
-              </button>
-            </div>
-          </form>
-
-          {message && <p className="success">{message}</p>}
-          {error && <p className="error">{error}</p>}
+            <button
+              className="primary-button"
+              onClick={saveJournal}
+              disabled={!entry.trim() || loading}
+            >
+              {loading ? "Saving..." : "Save Reflection"}
+            </button>
+          </div>
         </div>
 
-        <section className="journal-section">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">YOUR JOURNAL</span>
-              <h2>Past reflections</h2>
+        {analysis && (
+          <div className="analysis-card">
+            <div className="card-header">
+              <div>
+                <span className="eyebrow">GEMINI INSIGHT</span>
+                <h2>Your reflection</h2>
+              </div>
             </div>
 
-            <span className="count">{journals.length}</span>
+            <div className="mood-overview">
+              <div className="mood-box">
+                <span>MOOD</span>
+                <strong>{analysis.mood}</strong>
+              </div>
+
+              <div className="mood-box">
+                <span>MOOD SCORE</span>
+                <strong>{analysis.moodScore}/10</strong>
+              </div>
+            </div>
+
+            <div className="analysis-grid">
+              <div className="analysis-item">
+                <span>EMOTIONS</span>
+                <p>
+                  {Array.isArray(analysis.emotions)
+                    ? analysis.emotions.join(" • ")
+                    : analysis.emotions}
+                </p>
+              </div>
+
+              <div className="analysis-item">
+                <span>KEY THEMES</span>
+                <p>
+                  {Array.isArray(analysis.keyThemes)
+                    ? analysis.keyThemes.join(" • ")
+                    : analysis.keyThemes}
+                </p>
+              </div>
+
+              <div className="analysis-item">
+                <span>SUMMARY</span>
+                <p>{analysis.summary}</p>
+              </div>
+
+              <div className="analysis-item">
+                <span>REFLECTION</span>
+                <p>{analysis.reflection}</p>
+              </div>
+
+              <div className="analysis-item">
+                <span>HELPFUL INSIGHT</span>
+                <p>{analysis.helpfulInsight}</p>
+              </div>
+
+              <div className="analysis-item">
+                <span>SUGGESTED ACTION</span>
+                <p>{analysis.suggestedAction}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {error && <div className="error dashboard-error">{error}</div>}
+
+      <section className="past-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">YOUR JOURNAL</span>
+            <h2>Past reflections</h2>
           </div>
 
-          {loadingJournals ? (
-            <div className="empty-card">
-              <p>Loading your journal...</p>
-            </div>
-          ) : journals.length === 0 ? (
-            <div className="empty-card">
-              <div className="empty-icon">✦</div>
-              <h3>Your journal starts here</h3>
-              <p>
-                Write your first entry above and begin building your personal
-                timeline.
-              </p>
-            </div>
-          ) : (
-            <div className="journal-grid">
-              {journals.map((journal) => (
-                <article className="journal-card" key={journal.id}>
-                  <div className="journal-card-top">
-                    <span className="date">
-                      {formatDate(journal.createdAt)}
-                    </span>
+          <span className="journal-count">
+            {journals.length}{" "}
+            {journals.length === 1 ? "entry" : "entries"}
+          </span>
+        </div>
 
-                    <button
-                      className="delete-button"
-                      onClick={() => deleteJournal(journal.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
+        {journals.length === 0 ? (
+          <div className="empty-state">
+            <div>✦</div>
+            <h3>No reflections yet</h3>
+            <p>Your saved journal entries will appear here.</p>
+          </div>
+        ) : (
+          <div className="journal-grid">
+            {journals.map((journal) => (
+              <article className="journal-card" key={journal.id}>
+                <div className="journal-date">
+                  {journal.createdAt?.toDate
+                    ? journal.createdAt.toDate().toLocaleString()
+                    : "Just now"}
+                </div>
 
-                  <h3>{journal.title}</h3>
+                <p>{journal.text}</p>
 
-                  <p>{journal.content}</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+                <button
+                  className="delete-button"
+                  onClick={() => deleteJournal(journal.id)}
+                >
+                  Delete
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
