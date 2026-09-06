@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   createUserWithEmailAndPassword,
+  onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
 import {
-  collection,
   addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
   serverTimestamp,
 } from "firebase/firestore";
 
@@ -14,43 +20,48 @@ import { auth, db } from "./firebase";
 
 function App() {
   const [isLogin, setIsLogin] = useState(true);
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [user, setUser] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  // Login / Signup
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [journals, setJournals] = useState([]);
+
+  const [loading, setLoading] = useState(false);
+  const [loadingJournals, setLoadingJournals] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+
+      if (currentUser) {
+        loadJournals(currentUser);
+      } else {
+        setJournals([]);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
   const handleAuth = async (e) => {
     e.preventDefault();
-
     setError("");
     setLoading(true);
 
     try {
-      let result;
-
       if (isLogin) {
-        result = await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+        await signInWithEmailAndPassword(auth, email, password);
       } else {
-        result = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+        await createUserWithEmailAndPassword(auth, email, password);
       }
 
-      setUser(result.user);
+      setEmail("");
+      setPassword("");
     } catch (err) {
-      console.error(err);
-
-      // Friendly error messages
       if (err.code === "auth/invalid-credential") {
         setError("Invalid email or password.");
       } else if (err.code === "auth/email-already-in-use") {
@@ -67,83 +78,116 @@ function App() {
     }
   };
 
-  // Logout
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      setEmail("");
-      setPassword("");
-      setError("");
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    }
-  };
-
-  // Firestore test
-  const testFirestore = async () => {
+  const loadJournals = async (currentUser) => {
+    setLoadingJournals(true);
     setError("");
 
     try {
-      const currentUser = auth.currentUser;
+      const journalsRef = collection(
+        db,
+        "users",
+        currentUser.uid,
+        "journals"
+      );
 
-      if (!currentUser) {
-        setError("Please login first.");
-        return;
-      }
+      const journalsQuery = query(
+        journalsRef,
+        orderBy("createdAt", "desc")
+      );
 
-      await addDoc(collection(db, "journals"), {
-        userId: currentUser.uid,
-        title: "My First Journal",
-        content: "Firestore connection test!",
-        createdAt: serverTimestamp(),
-      });
+      const snapshot = await getDocs(journalsQuery);
 
-      alert("Journal saved successfully!");
+      const entries = snapshot.docs.map((journal) => ({
+        id: journal.id,
+        ...journal.data(),
+      }));
+
+      setJournals(entries);
     } catch (err) {
       console.error(err);
-      setError("Firestore error: " + err.message);
+      setError("Unable to load journals: " + err.message);
+    } finally {
+      setLoadingJournals(false);
     }
   };
 
-  // Logged-in screen
-  if (user) {
+  const saveJournal = async (e) => {
+    e.preventDefault();
+
+    if (!user) {
+      setError("Please login first.");
+      return;
+    }
+
+    if (!title.trim() || !content.trim()) {
+      setError("Please enter both title and content.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+
+    try {
+      const journalsRef = collection(
+        db,
+        "users",
+        user.uid,
+        "journals"
+      );
+
+      await addDoc(journalsRef, {
+        title: title.trim(),
+        content: content.trim(),
+        createdAt: serverTimestamp(),
+      });
+
+      setTitle("");
+      setContent("");
+      setMessage("Journal saved successfully!");
+
+      await loadJournals(user);
+    } catch (err) {
+      console.error(err);
+      setError("Unable to save journal: " + err.message);
+    }
+  };
+
+  const deleteJournal = async (journalId) => {
+    if (!user) return;
+
+    try {
+      await deleteDoc(
+        doc(db, "users", user.uid, "journals", journalId)
+      );
+
+      setJournals((current) =>
+        current.filter((journal) => journal.id !== journalId)
+      );
+
+      setMessage("Journal deleted.");
+    } catch (err) {
+      console.error(err);
+      setError("Unable to delete journal: " + err.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setTitle("");
+    setContent("");
+    setJournals([]);
+    setMessage("");
+    setError("");
+  };
+
+  if (!user) {
     return (
       <div>
         <h1>Personal Gemini Journal</h1>
 
-        <h2>Welcome!</h2>
+        <h2>{isLogin ? "Login" : "Create Account"}</h2>
 
-        <p>
-          Logged in as: <strong>{user.email}</strong>
-        </p>
-
-        <button onClick={testFirestore}>
-          Test Save Journal
-        </button>
-
-        <br />
-        <br />
-
-        <button onClick={handleLogout}>
-          Logout
-        </button>
-
-        {error && <p>{error}</p>}
-      </div>
-    );
-  }
-
-  // Login / Signup screen
-  return (
-    <div>
-      <h1>Personal Gemini Journal</h1>
-
-      <h2>{isLogin ? "Login" : "Create Account"}</h2>
-
-      <form onSubmit={handleAuth}>
-        <div>
+        <form onSubmit={handleAuth}>
           <input
             type="email"
             placeholder="Email"
@@ -151,11 +195,10 @@ function App() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
 
-        <br />
+          <br />
+          <br />
 
-        <div>
           <input
             type="password"
             placeholder="Password"
@@ -163,33 +206,103 @@ function App() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </div>
+
+          <br />
+          <br />
+
+          <button type="submit" disabled={loading}>
+            {loading
+              ? "Please wait..."
+              : isLogin
+              ? "Login"
+              : "Create Account"}
+          </button>
+        </form>
+
+        {error && <p>{error}</p>}
 
         <br />
 
-        <button type="submit" disabled={loading}>
-          {loading
-            ? "Please wait..."
-            : isLogin
-            ? "Login"
-            : "Create Account"}
+        <button
+          onClick={() => {
+            setIsLogin(!isLogin);
+            setError("");
+          }}
+        >
+          {isLogin
+            ? "Don't have an account? Sign up"
+            : "Already have an account? Login"}
         </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1>Personal Gemini Journal</h1>
+
+      <p>
+        Logged in as: <strong>{user.email}</strong>
+      </p>
+
+      <button onClick={handleLogout}>Logout</button>
+
+      <hr />
+
+      <h2>Write a Journal Entry</h2>
+
+      <form onSubmit={saveJournal}>
+        <input
+          type="text"
+          placeholder="Journal title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+
+        <br />
+        <br />
+
+        <textarea
+          placeholder="Write about your day..."
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows="10"
+          cols="50"
+          required
+        />
+
+        <br />
+        <br />
+
+        <button type="submit">Save Journal</button>
       </form>
 
+      {message && <p>{message}</p>}
       {error && <p>{error}</p>}
 
-      <br />
+      <hr />
 
-      <button
-        onClick={() => {
-          setIsLogin(!isLogin);
-          setError("");
-        }}
-      >
-        {isLogin
-          ? "Don't have an account? Sign up"
-          : "Already have an account? Login"}
-      </button>
+      <h2>My Journal Entries</h2>
+
+      {loadingJournals ? (
+        <p>Loading journals...</p>
+      ) : journals.length === 0 ? (
+        <p>No journal entries yet.</p>
+      ) : (
+        journals.map((journal) => (
+          <div key={journal.id}>
+            <h3>{journal.title}</h3>
+            <p>{journal.content}</p>
+
+            <button onClick={() => deleteJournal(journal.id)}>
+              Delete
+            </button>
+
+            <hr />
+          </div>
+        ))
+      )}
     </div>
   );
 }
