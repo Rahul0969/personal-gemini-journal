@@ -5,6 +5,7 @@ __pycache__/
 .env.example
 .env.*
 !.env.example
+.env
 
 service-account*.json
 firebase-service-account*.json
